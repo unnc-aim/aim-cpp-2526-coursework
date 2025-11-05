@@ -1,0 +1,15 @@
+*
+
+!main.cpp
+!Song.cpp
+!Song.h
+!.gitignore
+!README.md
+!CMakeLists.txt
+!/.github/workflows/test.yml
+!/.github/workflows
+!/.github
+!/testcases
+!/testcases/*
+!/test.sh
+!/check_format.py

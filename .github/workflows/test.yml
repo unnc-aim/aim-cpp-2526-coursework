@@ -1,0 +1,261 @@
+name: MiniDJ Automatic Grading
+
+on:
+    push:
+        branches: [main, master]
+    pull_request:
+        branches: [main, master]
+
+jobs:
+    grade:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: "3.x"
+
+            - name: Check Git Commit Messages
+              id: git_check
+              run: |
+                  echo "检查所有提交信息格式..."
+                  echo ""
+
+                  ALL_COMMITS=$(git log --no-merges --pretty=format:"%H|%s" --all)
+
+                  TOTAL_VIOLATIONS=0
+                  VIOLATION_DETAILS=""
+
+                  while IFS='|' read -r HASH MSG; do
+                    VIOLATION=""
+                    
+                    MSG_LENGTH=${#MSG}
+                    if [ $MSG_LENGTH -lt 10 ] || [ $MSG_LENGTH -gt 50 ]; then
+                      VIOLATION="${VIOLATION}Length: ${MSG_LENGTH} chars (required: 10-50); "
+                    fi
+                    
+                    if ! echo "$MSG" | grep -qE '^(feat|fix|docs|style|refactor|test|chore|perf|ci|build)(\([a-z0-9-]+\))?: [a-z]'; then
+                      VIOLATION="${VIOLATION}Format invalid; "
+                    fi
+                    
+                    if echo "$MSG" | grep -qP '[^\x00-\x7F]'; then
+                      VIOLATION="${VIOLATION}Must use English; "
+                    fi
+                    
+                    SUBJECT=$(echo "$MSG" | sed -E 's/^[^:]+: //')
+                    if ! echo "$SUBJECT" | grep -qE '^[a-z]'; then
+                      VIOLATION="${VIOLATION}Subject must start with lowercase; "
+                    fi
+                    
+                    if echo "$MSG" | grep -qE '[.!?]$'; then
+                      VIOLATION="${VIOLATION}No punctuation at end; "
+                    fi
+                    
+                    if [ -n "$VIOLATION" ]; then
+                      TOTAL_VIOLATIONS=$((TOTAL_VIOLATIONS + 1))
+                      SHORT_HASH=$(echo $HASH | cut -c1-7)
+                      VIOLATION_DETAILS="${VIOLATION_DETAILS}\n[$SHORT_HASH] \"$MSG\"\n   Issues: $VIOLATION"
+                      echo "[$SHORT_HASH] \"$MSG\""
+                      echo "   Issues: $VIOLATION"
+                    fi
+                  done <<< "$ALL_COMMITS"
+
+                  echo ""
+                  echo "Total violations: $TOTAL_VIOLATIONS"
+
+                  GIT_DEDUCTION=$((TOTAL_VIOLATIONS * 10))
+                  echo "git_deduction=$GIT_DEDUCTION" >> $GITHUB_OUTPUT
+                  echo "git_violations=$TOTAL_VIOLATIONS" >> $GITHUB_OUTPUT
+
+                  if [ $TOTAL_VIOLATIONS -eq 0 ]; then
+                    echo "All commit messages are valid"
+                    echo "git_status=pass" >> $GITHUB_OUTPUT
+                  else
+                    echo "git_status=fail" >> $GITHUB_OUTPUT
+                    echo "violation_details<<EOF" >> $GITHUB_OUTPUT
+                    echo -e "$VIOLATION_DETAILS" >> $GITHUB_OUTPUT
+                    echo "EOF" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Check File Modifications
+              id: file_check
+              run: |
+                  echo "Checking file modifications..."
+
+                  MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git ls-files)
+
+                  echo "Modified files:"
+                  echo "$MODIFIED_FILES"
+                  echo ""
+
+                  INVALID_FILES=""
+                  while IFS= read -r file; do
+                    if [[ "$file" != "Song.cpp" ]] && [[ "$file" != "CMakeLists.txt" ]]; then
+                      INVALID_FILES="${INVALID_FILES}\n  - $file"
+                    fi
+                  done <<< "$MODIFIED_FILES"
+
+                  if [ -n "$INVALID_FILES" ]; then
+                    echo "file_check=fail" >> $GITHUB_OUTPUT
+                    echo "Detected modifications to unauthorized files:"
+                    echo -e "$INVALID_FILES"
+                    echo ""
+                    echo "Only Song.cpp and CMakeLists.txt can be modified!"
+                    echo "Assignment graded as FAIL (0 points)"
+                    exit 1
+                  else
+                    echo "file_check=pass" >> $GITHUB_OUTPUT
+                    echo "File modification check passed"
+                  fi
+
+            - name: Check Code Format
+              id: format_check
+              continue-on-error: true
+              run: |
+                  echo "Checking code format..."
+                  python3 check_format.py Song.cpp > format_result.txt 2>&1
+                  FORMAT_EXIT_CODE=$?
+
+                  cat format_result.txt
+
+                  FORMAT_DEDUCTION=$(grep "总扣分:" format_result.txt | grep -oE '[0-9]+' || echo "0")
+
+                  echo "format_deduction=$FORMAT_DEDUCTION" >> $GITHUB_OUTPUT
+
+                  if [ $FORMAT_EXIT_CODE -eq 0 ]; then
+                    echo "format_status=pass" >> $GITHUB_OUTPUT
+                    echo "Code format check passed"
+                  else
+                    echo "format_status=fail" >> $GITHUB_OUTPUT
+                    echo "Code format check found issues"
+                  fi
+
+            - name: Build Project
+              id: build
+              run: |
+                  echo "Building project..."
+                  mkdir -p build
+                  cd build
+                  cmake ..
+                  cmake --build .
+
+                  if [ $? -eq 0 ]; then
+                    echo "build_status=pass" >> $GITHUB_OUTPUT
+                    echo "Build successful"
+                  else
+                    echo "build_status=fail" >> $GITHUB_OUTPUT
+                    echo "Build failed"
+                    exit 1
+                  fi
+
+            - name: Run Tests
+              id: test
+              continue-on-error: true
+              run: |
+                  echo "Running tests..."
+                  cd build
+
+                  ctest --output-on-failure --no-compress-output -T Test || true
+
+                  TOTAL_TESTS=8
+                  PASSED_TESTS=$(ctest -N | grep "Total Tests:" | grep -oE '[0-9]+' || echo "0")
+
+                  FAILED_TESTS=$(grep -c "Test #.*\*\*\*Failed" Testing/Temporary/LastTest.log 2>/dev/null || echo "0")
+
+                  if [ "$FAILED_TESTS" -eq "0" ]; then
+                    FAILED_TESTS=$((TOTAL_TESTS - PASSED_TESTS))
+                  fi
+
+                  TEST_DEDUCTION=$((FAILED_TESTS * 10))
+
+                  echo "total_tests=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+                  echo "passed_tests=$PASSED_TESTS" >> $GITHUB_OUTPUT
+                  echo "failed_tests=$FAILED_TESTS" >> $GITHUB_OUTPUT
+                  echo "test_deduction=$TEST_DEDUCTION" >> $GITHUB_OUTPUT
+
+                  echo ""
+                  echo "Test results: $PASSED_TESTS / $TOTAL_TESTS passed"
+                  echo "Test deduction: -$TEST_DEDUCTION points"
+
+                  if [ $FAILED_TESTS -eq 0 ]; then
+                    echo "test_status=pass" >> $GITHUB_OUTPUT
+                  else
+                    echo "test_status=fail" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Generate Grading Report
+              if: always()
+              run: |
+                  echo ""
+                  echo "=========================================="
+                  echo "  MiniDJ Assignment Grading Report"
+                  echo "=========================================="
+                  echo ""
+
+                  GIT_DEDUCTION="${{ steps.git_check.outputs.git_deduction }}"
+                  GIT_VIOLATIONS="${{ steps.git_check.outputs.git_violations }}"
+                  FORMAT_DEDUCTION="${{ steps.format_check.outputs.format_deduction }}"
+                  TEST_DEDUCTION="${{ steps.test.outputs.test_deduction }}"
+                  FAILED_TESTS="${{ steps.test.outputs.failed_tests }}"
+                  PASSED_TESTS="${{ steps.test.outputs.passed_tests }}"
+
+                  GIT_DEDUCTION=${GIT_DEDUCTION:-0}
+                  GIT_VIOLATIONS=${GIT_VIOLATIONS:-0}
+                  FORMAT_DEDUCTION=${FORMAT_DEDUCTION:-0}
+                  TEST_DEDUCTION=${TEST_DEDUCTION:-0}
+                  FAILED_TESTS=${FAILED_TESTS:-0}
+                  PASSED_TESTS=${PASSED_TESTS:-0}
+
+                  FINAL_SCORE=$((100 - GIT_DEDUCTION - FORMAT_DEDUCTION - TEST_DEDUCTION))
+
+                  if [ $FINAL_SCORE -lt 0 ]; then
+                    FINAL_SCORE=0
+                  fi
+
+                  echo "Grading Details:"
+                  echo "  Git commit messages:  -$GIT_DEDUCTION points ($GIT_VIOLATIONS violations)"
+                  echo "  Code format:          -$FORMAT_DEDUCTION points"
+                  echo "  Failed tests:         -$TEST_DEDUCTION points ($FAILED_TESTS / 8 failed)"
+                  echo ""
+                  echo "Final Score: $FINAL_SCORE / 100"
+                  echo ""
+
+                  if [ $GIT_VIOLATIONS -gt 0 ]; then
+                    echo "Git commit violations:"
+                    echo "${{ steps.git_check.outputs.violation_details }}"
+                    echo ""
+                  fi
+
+                  echo "Additional Notes:"
+                  echo "  - Manual review may deduct additional points (-5 per obvious question)"
+                  echo "  - To fix git history: use 'git rebase -i'"
+                  echo "  - Git Message Regulation: github.com/unnc-aim/#14-git-message-regulation"
+                  echo ""
+
+                  if [ $FINAL_SCORE -ge 95 ]; then
+                    echo "Excellent! Nearly perfect code!"
+                  elif [ $FINAL_SCORE -ge 85 ]; then
+                    echo "Great! High quality code with minor issues."
+                  elif [ $FINAL_SCORE -ge 75 ]; then
+                    echo "Good! Some issues need to be fixed."
+                  elif [ $FINAL_SCORE -ge 60 ]; then
+                    echo "Pass! But many issues need improvement."
+                  elif [ $FINAL_SCORE -ge 40 ]; then
+                    echo "Needs improvement! Please check your code carefully."
+                  else
+                    echo "Failed! Please read requirements and fix all issues."
+                  fi
+
+                  echo ""
+                  echo "=========================================="
+
+                  if [ $FINAL_SCORE -lt 60 ]; then
+                    echo "Final score below 60 - Assignment FAILED"
+                    exit 1
+                  fi
