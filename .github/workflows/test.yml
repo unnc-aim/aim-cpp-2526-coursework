@@ -223,21 +223,22 @@ jobs:
           echo "Running tests..."
           cd build
 
-          ctest --output-on-failure --no-compress-output -T Test || true
+          # Run tests and capture output
+          TEST_OUTPUT=$(ctest --output-on-failure --no-compress-output -T Test 2>&1 || true)
 
-          # Get total number of tests from ctest output
-          TOTAL_TESTS=$(ctest -N 2>/dev/null | grep "Total Tests:" | grep -oE '[0-9]+' | tail -1 || echo "16")
-          if [ -z "$TOTAL_TESTS" ] || [ "$TOTAL_TESTS" = "0" ]; then
-            TOTAL_TESTS=16
-          fi
+          # Get total number of tests (default to 16)
+          TOTAL_TESTS=16
 
-          # Count failed tests from log file
-          FAILED_TESTS=$(grep -c "Test #.*\*\*\*Failed" Testing/Temporary/LastTest.log 2>/dev/null || echo "0")
-          FAILED_TESTS=${FAILED_TESTS:-0}
+          # Count failed tests from the output
+          FAILED_TESTS=$(echo "$TEST_OUTPUT" | grep -c "\*\*\*Failed" || echo "0")
+
+          # Ensure variables are numeric
+          TOTAL_TESTS=$((TOTAL_TESTS + 0))
+          FAILED_TESTS=$((FAILED_TESTS + 0))
 
           # Calculate passed tests
           PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS))
-          if [ "$PASSED_TESTS" -lt 0 ] 2>/dev/null; then
+          if [ "$PASSED_TESTS" -lt 0 ]; then
             PASSED_TESTS=0
           fi
 
