@@ -17,12 +17,13 @@ jobs:
                   fetch-depth: 0
 
             - name: Detect changed files and enforce Song.cpp and CMakeLists.txt only
+              id: file_check
               shell: bash
               run: |
                   set -eo pipefail
 
                   # Skip changed files check for the upstream repository
-                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/2026-cpp-cw1" ]; then
+                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/aim-cpp-2526-coursework" ]; then
                     echo "# Tests" >> "$GITHUB_STEP_SUMMARY"
                     echo "" >> "$GITHUB_STEP_SUMMARY"
                     echo "## Files changed" >> "$GITHUB_STEP_SUMMARY"
@@ -93,17 +94,19 @@ jobs:
                     printf '%s\n' "${DISALLOWED_LIST[@]}" >> "$GITHUB_STEP_SUMMARY"
                     echo '```' >> "$GITHUB_STEP_SUMMARY"
                     echo "❌ Disallowed modification(s) detected." >> "$GITHUB_STEP_SUMMARY"
+                    echo "file_check=fail" >> $GITHUB_OUTPUT
                     printf 'Disallowed modification(s) detected: %s\n' "${DISALLOWED_LIST[*]}" >&2
-                    exit 1
+                    # Don't exit here, continue to grading
                   else 
                     echo "- Status: ✅ Passed" >> "$GITHUB_STEP_SUMMARY"
+                    echo "file_check=pass" >> $GITHUB_OUTPUT
                   fi
 
             - name: Check Git Commit Messages
               id: git_check
               run: |
                   # Skip git check for the upstream repository
-                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/2026-cpp-cw1" ]; then
+                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/aim-cpp-2526-coursework" ]; then
                     echo "git_deduction=0" >> $GITHUB_OUTPUT
                     echo "git_violations=0" >> $GITHUB_OUTPUT
                     echo "git_status=skipped" >> $GITHUB_OUTPUT
@@ -189,7 +192,7 @@ jobs:
               continue-on-error: true
               run: |
                   # Skip format check for the upstream repository
-                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/2026-cpp-cw1" ]; then
+                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/aim-cpp-2526-coursework" ]; then
                     echo "format_deduction=0" >> $GITHUB_OUTPUT
                     echo "format_status=skipped" >> $GITHUB_OUTPUT
                     echo "Code format check skipped for upstream repository"
@@ -218,7 +221,7 @@ jobs:
               id: build
               run: |
                   # Skip build for the upstream repository
-                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/2026-cpp-cw1" ]; then
+                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/aim-cpp-2526-coursework" ]; then
                     echo "build_status=skipped" >> $GITHUB_OUTPUT
                     echo "Build skipped for upstream repository"
                     exit 0
@@ -236,7 +239,7 @@ jobs:
                   else
                     echo "build_status=fail" >> $GITHUB_OUTPUT
                     echo "Build failed"
-                    exit 1
+                    # Don't exit here, continue to grading
                   fi
 
             - name: Run Tests
@@ -244,7 +247,7 @@ jobs:
               continue-on-error: true
               run: |
                   # Skip tests for the upstream repository
-                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/2026-cpp-cw1" ]; then
+                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/aim-cpp-2526-coursework" ]; then
                     echo "total_tests=0" >> $GITHUB_OUTPUT
                     echo "passed_tests=0" >> $GITHUB_OUTPUT
                     echo "failed_tests=0" >> $GITHUB_OUTPUT
@@ -292,7 +295,7 @@ jobs:
                   set -eo pipefail
 
                   # Skip tests for the upstream repository
-                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/2026-cpp-cw1" ]; then
+                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/aim-cpp-2526-coursework" ]; then
                     echo "" >> "$GITHUB_STEP_SUMMARY"
                     echo "## Tests Skipped" >> "$GITHUB_STEP_SUMMARY"
                     echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -315,6 +318,36 @@ jobs:
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   echo "## Grading Report" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
+
+                  # Check for critical failures that should result in 0 points
+                  FILE_CHECK_STATUS="${{ steps.file_check.outputs.file_check }}"
+                  BUILD_STATUS="${{ steps.build.outputs.build_status }}"
+
+                  if [ "$FILE_CHECK_STATUS" = "fail" ]; then
+                    echo "==========================================" >> "$GITHUB_STEP_SUMMARY"
+                    echo "  MiniDJ Assignment Grading Report" >> "$GITHUB_STEP_SUMMARY"
+                    echo "==========================================" >> "$GITHUB_STEP_SUMMARY"
+                    echo "" >> "$GITHUB_STEP_SUMMARY"
+                    echo "❌ **CRITICAL FAILURE: Disallowed file modifications detected**" >> "$GITHUB_STEP_SUMMARY"
+                    echo "" >> "$GITHUB_STEP_SUMMARY"
+                    echo "**Final Score: 0 / 100**" >> "$GITHUB_STEP_SUMMARY"
+                    echo "" >> "$GITHUB_STEP_SUMMARY"
+                    echo "Assignment failed due to unauthorized file modifications." >> "$GITHUB_STEP_SUMMARY"
+                    exit 1
+                  fi
+
+                  if [ "$BUILD_STATUS" = "fail" ]; then
+                    echo "==========================================" >> "$GITHUB_STEP_SUMMARY"
+                    echo "  MiniDJ Assignment Grading Report" >> "$GITHUB_STEP_SUMMARY"
+                    echo "==========================================" >> "$GITHUB_STEP_SUMMARY"
+                    echo "" >> "$GITHUB_STEP_SUMMARY"
+                    echo "❌ **CRITICAL FAILURE: Build failed**" >> "$GITHUB_STEP_SUMMARY"
+                    echo "" >> "$GITHUB_STEP_SUMMARY"
+                    echo "**Final Score: 0 / 100**" >> "$GITHUB_STEP_SUMMARY"
+                    echo "" >> "$GITHUB_STEP_SUMMARY"
+                    echo "Assignment failed due to compilation errors." >> "$GITHUB_STEP_SUMMARY"
+                    exit 1
+                  fi
 
                   # Get results from previous steps
                   GIT_DEDUCTION="${{ steps.git_check.outputs.git_deduction }}"
@@ -389,7 +422,7 @@ jobs:
                     echo "" >> "$GITHUB_STEP_SUMMARY"
                     echo "## 🎉 Congrats" >> "$GITHUB_STEP_SUMMARY"
                     echo "" >> "$GITHUB_STEP_SUMMARY"
-                    echo "Please copy [this link (hover and copy link)](${RUN_URL}) and submit it together with your name and student ID to our assignment questionnaire:" >> "$GITHUB_STEP_SUMMARY"
+                    echo "Please copy [this link (hover and copy link)](${RUN_URL}) and submit it together with additional info requested to our assignment questionnaire:" >> "$GITHUB_STEP_SUMMARY"
                     echo "<https://forms.cloud.microsoft/r/Jy9mmHHGbi>" >> "$GITHUB_STEP_SUMMARY"
                     exit 0
                   else
