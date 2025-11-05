@@ -226,23 +226,22 @@ jobs:
           ctest --output-on-failure --no-compress-output -T Test || true
 
           # Get total number of tests from ctest output
-          TOTAL_TESTS=$(ctest -N 2>/dev/null | grep "Total Tests:" | grep -oE '[0-9]+' | head -1 || echo "8")
-          if [ -z "$TOTAL_TESTS" ] || [ "$TOTAL_TESTS" -eq 0 ]; then
-            TOTAL_TESTS=8
+          TOTAL_TESTS=$(ctest -N 2>/dev/null | grep "Total Tests:" | grep -oE '[0-9]+' | tail -1 || echo "16")
+          if [ -z "$TOTAL_TESTS" ] || [ "$TOTAL_TESTS" = "0" ]; then
+            TOTAL_TESTS=16
           fi
 
           # Count failed tests from log file
           FAILED_TESTS=$(grep -c "Test #.*\*\*\*Failed" Testing/Temporary/LastTest.log 2>/dev/null || echo "0")
-          if [ -z "$FAILED_TESTS" ]; then
-            FAILED_TESTS=0
-          fi
+          FAILED_TESTS=${FAILED_TESTS:-0}
 
           # Calculate passed tests
           PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS))
-          if [ $PASSED_TESTS -lt 0 ]; then
+          if [ "$PASSED_TESTS" -lt 0 ] 2>/dev/null; then
             PASSED_TESTS=0
           fi
 
+          # Calculate test deduction (10 points per failed test)
           TEST_DEDUCTION=$((FAILED_TESTS * 10))
 
           echo "total_tests=$TOTAL_TESTS" >> $GITHUB_OUTPUT
