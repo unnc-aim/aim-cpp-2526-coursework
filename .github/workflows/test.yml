@@ -249,8 +249,8 @@ jobs:
             echo "Build successful"
           else
             echo "build_status=fail" >> $GITHUB_OUTPUT
-            echo "Build failed"
-            # Don't exit here, continue to grading
+            echo "Build failed - assignment will receive 0 points"
+            exit 1
           fi
 
       - name: Run Tests
@@ -328,19 +328,6 @@ jobs:
             echo "**Final Score: 0 / 100**" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "Assignment failed due to unauthorized file modifications." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          if [ "$BUILD_STATUS" = "fail" ]; then
-            echo "==========================================" >> "$GITHUB_STEP_SUMMARY"
-            echo "  MiniDJ Assignment Grading Report" >> "$GITHUB_STEP_SUMMARY"
-            echo "==========================================" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "❌ **CRITICAL FAILURE: Build failed**" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Final Score: 0 / 100**" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Assignment failed due to compilation errors." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
