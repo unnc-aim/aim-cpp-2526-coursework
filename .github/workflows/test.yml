@@ -107,9 +107,6 @@ jobs:
             - name: Check Git Commit Messages
               id: git_check
               run: |
-                  # Skip git check for the upstream repository
-                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/aim-cpp-2526-coursework" ]; then
-
                   echo "检查所有提交信息格式..."
                   echo ""
 
@@ -281,9 +278,6 @@ jobs:
               shell: bash
               run: |
                   set -eo pipefail
-
-                  # Skip tests for the upstream repository
-                  if [ "${GITHUB_REPOSITORY}" = "unnc-aim/aim-cpp-2526-coursework" ]; then
 
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   echo "## Grading Report" >> "$GITHUB_STEP_SUMMARY"
